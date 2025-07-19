@@ -32,30 +32,20 @@ app.get("/transcript", async (req, res) => {
     await page.setViewport({ width: 1920, height: 1080 });
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
 
-    // ⏱️ Wait manually using JS (replaces page.waitForTimeout)
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    // Expand description
+    const moreBtn = await page.$('tp-yt-paper-button#more');
+    if (moreBtn) await moreBtn.click();
 
-    // Try to open the 3-dot menu
-    const moreBtn = await page.$('button[aria-label^="More actions"]');
-    if (!moreBtn) throw new Error("⚠️ 'More actions' button not found.");
-    await moreBtn.click();
-
-    await page.waitForSelector("ytd-menu-service-item-renderer", { timeout: 10000 });
-
-    const items = await page.$$("ytd-menu-service-item-renderer");
-    let clicked = false;
-    for (const item of items) {
-      const text = await item.evaluate(el => el.textContent?.trim().toLowerCase());
-      if (text.includes("transcript")) {
-        await item.click();
-        clicked = true;
-        break;
-      }
+    // Click "Show transcript"
+    await page.waitForSelector('ytd-button-renderer[button-renderer][is-paper-button] a[href^="#"]', { timeout: 10000 });
+    const showTranscriptBtn = await page.$x("//yt-formatted-string[contains(text(), 'Show transcript')]");
+    if (showTranscriptBtn.length) {
+      await showTranscriptBtn[0].click();
+    } else {
+      throw new Error("❌ 'Show transcript' button not found.");
     }
 
-    if (!clicked) throw new Error("❌ Transcript button not found.");
-
-    // Wait for transcript panel
+    // Wait for the transcript panel to render
     await page.waitForSelector("ytd-transcript-segment-renderer", { timeout: 15000 });
 
     const transcript = await page.$$eval("ytd-transcript-segment-renderer", segments =>
@@ -71,11 +61,10 @@ app.get("/transcript", async (req, res) => {
 
     if (!transcript) throw new Error("❌ Transcript was empty.");
 
-    console.log("✅ Transcript extracted.");
     return res.json({ transcript });
   } catch (err) {
     console.error("❌ Error fetching transcript:", err.message);
-    return res.status(500).json({ error: "Failed to extract transcript." });
+    return res.status(500).json({ error: err.message || "Failed to extract transcript." });
   } finally {
     if (browser) await browser.close();
   }
