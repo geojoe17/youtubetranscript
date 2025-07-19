@@ -6,9 +6,7 @@ app.use(express.json());
 
 app.get("/transcript", async (req, res) => {
   const url = req.query.url;
-  if (!url || (!url.includes("youtube.com") && !url.includes("youtu.be"))) {
-    return res.status(400).json({ error: "Missing or invalid YouTube URL." });
-  }
+  if (!url) return res.status(400).json({ error: "Missing YouTube URL." });
 
   let browser;
   try {
@@ -22,55 +20,63 @@ app.get("/transcript", async (req, res) => {
         "--no-zygote",
         "--disable-gpu",
         "--single-process",
-        "--window-size=1920,1080",
+        "--window-size=1280,800",
         "--lang=en-US,en;q=0.9",
-        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115 Safari/537.36"
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
       ]
     });
 
     const page = await browser.newPage();
-    await page.setViewport({ width: 1920, height: 1080 });
+    await page.setViewport({ width: 1280, height: 800 });
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
 
     // Expand description
-    const moreBtn = await page.$('tp-yt-paper-button#more');
-    if (moreBtn) await moreBtn.click();
-
-    // Click "Show transcript"
-    await page.waitForSelector('ytd-button-renderer[button-renderer][is-paper-button] a[href^="#"]', { timeout: 10000 });
-    const showTranscriptBtn = await page.$x("//yt-formatted-string[contains(text(), 'Show transcript')]");
-    if (showTranscriptBtn.length) {
-      await showTranscriptBtn[0].click();
-    } else {
-      throw new Error("❌ 'Show transcript' button not found.");
+    const moreSel = 'tp-yt-paper-button#more';
+    if (await page.$(moreSel)) {
+      await page.click(moreSel);
+      await page.waitForTimeout(1000);
     }
 
-    // Wait for the transcript panel to render
+    // Click "Show transcript"
+    const [transcriptBtn] = await page.$x(
+      "//tp-yt-paper-item//span[contains(., 'Show transcript')]"
+    );
+    if (transcriptBtn) {
+      await transcriptBtn.click();
+    } else {
+      return res.status(404).json({ error: "Transcript button not found." });
+    }
+
+    // Wait for transcript to appear on the right panel
     await page.waitForSelector("ytd-transcript-segment-renderer", { timeout: 15000 });
 
-    const transcript = await page.$$eval("ytd-transcript-segment-renderer", segments =>
-      segments
-        .map(s => {
-          const time = s.querySelector(".segment-timestamp")?.innerText || "";
-          const text = s.querySelector(".segment-text")?.innerText || "";
-          return `${time} - ${text}`.trim();
-        })
-        .filter(line => !!line)
-        .join("\n")
+    // Extract the transcript
+    const transcript = await page.$$eval(
+      "ytd-transcript-segment-renderer",
+      segments =>
+        segments
+          .map(s => {
+            const time = s.querySelector(".segment-timestamp")?.innerText.trim() || "";
+            const text = s.querySelector(".segment-text")?.innerText.trim() || "";
+            return time && text ? `${time} — ${text}` : null;
+          })
+          .filter(Boolean)
+          .join("\n")
     );
 
-    if (!transcript) throw new Error("❌ Transcript was empty.");
+    if (!transcript) {
+      return res.status(500).json({ error: "Transcript extraction resulted in empty content." });
+    }
 
     return res.json({ transcript });
+
   } catch (err) {
-    console.error("❌ Error fetching transcript:", err.message);
-    return res.status(500).json({ error: err.message || "Failed to extract transcript." });
+    console.error("❌ Error: ", err);
+    return res.status(500).json({ error: err.message });
   } finally {
     if (browser) await browser.close();
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Puppeteer transcript service running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Listening on port ${PORT}`));
