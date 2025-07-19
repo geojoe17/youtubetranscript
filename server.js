@@ -21,34 +21,40 @@ app.get("/transcript", async (req, res) => {
         "--disable-accelerated-2d-canvas",
         "--no-zygote",
         "--disable-gpu",
-        "--single-process"
+        "--single-process",
+        "--window-size=1920,1080",
+        "--lang=en-US,en;q=0.9",
+        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115 Safari/537.36"
       ]
     });
 
     const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080 });
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
 
-    // Open "More actions" menu (3 dots)
-    await page.waitForSelector('button[aria-label^="More actions"]', { timeout: 15000 });
-    await page.click('button[aria-label^="More actions"]');
+    await page.waitForTimeout(3000); // Let YouTube load fully
 
-    // Wait and find the "Show transcript" option
-    await page.waitForSelector("ytd-menu-service-item-renderer", { timeout: 15000 });
+    // Try to open the 3-dot menu
+    const moreBtn = await page.$('button[aria-label^="More actions"]');
+    if (!moreBtn) throw new Error("⚠️ 'More actions' button not found.");
+    await moreBtn.click();
+
+    await page.waitForSelector("ytd-menu-service-item-renderer", { timeout: 10000 });
 
     const items = await page.$$("ytd-menu-service-item-renderer");
     let clicked = false;
     for (const item of items) {
       const text = await item.evaluate(el => el.textContent?.trim().toLowerCase());
-      if (text && text.includes("transcript")) {
+      if (text.includes("transcript")) {
         await item.click();
         clicked = true;
         break;
       }
     }
 
-    if (!clicked) throw new Error("Transcript button not found.");
+    if (!clicked) throw new Error("❌ Transcript button not found.");
 
-    // Wait for transcript panel to load
+    // Wait for transcript panel
     await page.waitForSelector("ytd-transcript-segment-renderer", { timeout: 15000 });
 
     const transcript = await page.$$eval("ytd-transcript-segment-renderer", segments =>
@@ -62,7 +68,7 @@ app.get("/transcript", async (req, res) => {
         .join("\n")
     );
 
-    if (!transcript) throw new Error("Transcript was empty.");
+    if (!transcript) throw new Error("❌ Transcript was empty.");
 
     console.log("✅ Transcript extracted.");
     return res.json({ transcript });
