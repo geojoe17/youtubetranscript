@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y \
     libxss1 \
     libxtst6 \
     libdrm2 \
-    **libgbm1** \     # ✅ <--- Add this line
+    **libgbm1** \
     xdg-utils \
     --no-install-recommends && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
