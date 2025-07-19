@@ -6,38 +6,71 @@ app.use(express.json());
 
 app.get("/transcript", async (req, res) => {
   const url = req.query.url;
-  if (!url || !url.includes("youtube.com") && !url.includes("youtu.be")) {
+  if (!url || (!url.includes("youtube.com") && !url.includes("youtu.be"))) {
     return res.status(400).json({ error: "Missing or invalid YouTube URL." });
   }
 
+  let browser;
   try {
-    const browser = await puppeteer.launch({
+    browser = await puppeteer.launch({
       headless: "new",
       args: ["--no-sandbox", "--disable-setuid-sandbox"]
     });
+
     const page = await browser.newPage();
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
 
-    await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+    // Click "..." menu if needed
+    try {
+      const menuBtn = await page.$('button[aria-label^="More actions"]');
+      if (menuBtn) await menuBtn.click();
+    } catch (e) {
+      console.warn("⚠️ Couldn't click more actions button.");
+    }
 
-    // Expand transcript panel
-    await page.click('button[aria-label="Show transcript"]');
-    await page.waitForSelector('ytd-transcript-renderer', { timeout: 10000 });
+    // Click "Show transcript" button
+    await page.waitForSelector('ytd-menu-service-item-renderer', { timeout: 10000 });
+    const items = await page.$$('ytd-menu-service-item-renderer');
 
-    // Extract transcript text
-    const transcript = await page.$$eval('ytd-transcript-segment-renderer', nodes =>
-      nodes.map(n => n.innerText).join("\n")
+    let clicked = false;
+    for (const item of items) {
+      const text = await item.evaluate(el => el.textContent.trim().toLowerCase());
+      if (text.includes("transcript")) {
+        await item.click();
+        clicked = true;
+        break;
+      }
+    }
+
+    if (!clicked) throw new Error("Transcript option not found.");
+
+    // Wait for transcript renderer
+    await page.waitForSelector('ytd-transcript-segment-renderer', { timeout: 15000 });
+
+    const transcript = await page.$$eval(
+      'ytd-transcript-segment-renderer',
+      segments =>
+        segments
+          .map(s => {
+            const time = s.querySelector('.segment-timestamp')?.innerText || "";
+            const text = s.querySelector('.segment-text')?.innerText || "";
+            return `${time} - ${text}`.trim();
+          })
+          .join('\n')
     );
 
-    await browser.close();
+    if (!transcript) throw new Error("Transcript extraction failed or empty.");
 
     return res.json({ transcript });
   } catch (err) {
-    console.error("❌ Error fetching transcript:", err);
+    console.error("❌ Error fetching transcript:", err.message);
     return res.status(500).json({ error: "Failed to extract transcript." });
+  } finally {
+    if (browser) await browser.close();
   }
 });
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ Puppeteer service listening on port ${PORT}`);
+  console.log(`✅ Puppeteer transcript service running on port ${PORT}`);
 });
