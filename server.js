@@ -14,53 +14,57 @@ app.get("/transcript", async (req, res) => {
   try {
     browser = await puppeteer.launch({
       headless: "new",
-      args: ["--no-sandbox", "--disable-setuid-sandbox"]
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--no-zygote",
+        "--disable-gpu",
+        "--single-process"
+      ]
     });
 
     const page = await browser.newPage();
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
 
-    // Click "..." menu if needed
-    try {
-      const menuBtn = await page.$('button[aria-label^="More actions"]');
-      if (menuBtn) await menuBtn.click();
-    } catch (e) {
-      console.warn("⚠️ Couldn't click more actions button.");
-    }
+    // Open "More actions" menu (3 dots)
+    await page.waitForSelector('button[aria-label^="More actions"]', { timeout: 15000 });
+    await page.click('button[aria-label^="More actions"]');
 
-    // Click "Show transcript" button
-    await page.waitForSelector('ytd-menu-service-item-renderer', { timeout: 10000 });
-    const items = await page.$$('ytd-menu-service-item-renderer');
+    // Wait and find the "Show transcript" option
+    await page.waitForSelector("ytd-menu-service-item-renderer", { timeout: 15000 });
 
+    const items = await page.$$("ytd-menu-service-item-renderer");
     let clicked = false;
     for (const item of items) {
-      const text = await item.evaluate(el => el.textContent.trim().toLowerCase());
-      if (text.includes("transcript")) {
+      const text = await item.evaluate(el => el.textContent?.trim().toLowerCase());
+      if (text && text.includes("transcript")) {
         await item.click();
         clicked = true;
         break;
       }
     }
 
-    if (!clicked) throw new Error("Transcript option not found.");
+    if (!clicked) throw new Error("Transcript button not found.");
 
-    // Wait for transcript renderer
-    await page.waitForSelector('ytd-transcript-segment-renderer', { timeout: 15000 });
+    // Wait for transcript panel to load
+    await page.waitForSelector("ytd-transcript-segment-renderer", { timeout: 15000 });
 
-    const transcript = await page.$$eval(
-      'ytd-transcript-segment-renderer',
-      segments =>
-        segments
-          .map(s => {
-            const time = s.querySelector('.segment-timestamp')?.innerText || "";
-            const text = s.querySelector('.segment-text')?.innerText || "";
-            return `${time} - ${text}`.trim();
-          })
-          .join('\n')
+    const transcript = await page.$$eval("ytd-transcript-segment-renderer", segments =>
+      segments
+        .map(s => {
+          const time = s.querySelector(".segment-timestamp")?.innerText || "";
+          const text = s.querySelector(".segment-text")?.innerText || "";
+          return `${time} - ${text}`.trim();
+        })
+        .filter(line => !!line)
+        .join("\n")
     );
 
-    if (!transcript) throw new Error("Transcript extraction failed or empty.");
+    if (!transcript) throw new Error("Transcript was empty.");
 
+    console.log("✅ Transcript extracted.");
     return res.json({ transcript });
   } catch (err) {
     console.error("❌ Error fetching transcript:", err.message);
