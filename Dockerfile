@@ -1,7 +1,7 @@
-# Use official Node.js base image
+# Use official Node.js slim image
 FROM node:20-slim
 
-# Install Chromium dependencies for Puppeteer
+# Install required system dependencies for Chromium
 RUN apt-get update && apt-get install -y \
     wget \
     ca-certificates \
@@ -30,17 +30,15 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy package files first (for layer caching)
+# Install Node dependencies (Puppeteer auto-downloads Chromium)
 COPY package*.json ./
-
-# Install dependencies (including Puppeteer which will install Chromium)
 RUN npm install
 
-# Copy source code
+# Copy application source code
 COPY . .
 
-# Expose port
+# Expose port for Render
 EXPOSE 3000
 
-# Start server
+# Run server
 CMD ["node", "server.js"]
