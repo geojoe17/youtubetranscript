@@ -1,7 +1,7 @@
-# Use official Node.js base image
+# Use official Node.js image (includes npm)
 FROM node:20-slim
 
-# Install necessary dependencies for Puppeteer + Chromium
+# Install Chromium dependencies
 RUN apt-get update && apt-get install -y \
     wget \
     ca-certificates \
@@ -19,10 +19,11 @@ RUN apt-get update && apt-get install -y \
     libxcomposite1 \
     libxdamage1 \
     libxrandr2 \
+    libu2f-udev \
+    libvulkan1 \
     xdg-utils \
     --no-install-recommends && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -30,14 +31,14 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies (will also download Chromium)
-RUN npm install
+# Force install latest compatible puppeteer + Chromium
+RUN npm install puppeteer@22.8.2
 
-# Copy app source code
+# Copy app source
 COPY . .
 
 # Expose port
 EXPOSE 3000
 
-# Start the server
+# Run the server
 CMD ["node", "server.js"]
